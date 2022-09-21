@@ -23,19 +23,17 @@ class SDMGRLoss(nn.Module):
         self.edge_weight = edge_weight
         self.ignore = ignore
 
-    def forward(self, node_preds, edge_preds, gts, len_of_nodes):
+    def forward(self, node_preds, edge_preds, gts):
         node_gts, edge_gts = [], []
-        for ind, gt in enumerate(gts):
-            node_gts.append(gt[:len_of_nodes[ind]])
-            edge_gts.append(gt[len_of_nodes[ind]:].contiguous().view(-1))
-            
+        for gt in gts:
+            node_gts.append(gt[:, 0])
+            edge_gts.append(gt[:, 1:].contiguous().view(-1))
         node_gts = torch.cat(node_gts).long()
         edge_gts = torch.cat(edge_gts).long()
 
         node_valids = torch.nonzero(
             node_gts != self.ignore, as_tuple=False).view(-1)
         edge_valids = torch.nonzero(edge_gts != -1, as_tuple=False).view(-1)
-
         return dict(
             loss_node=self.node_weight * self.loss_node(node_preds, node_gts),
             loss_edge=self.edge_weight * self.loss_edge(edge_preds, edge_gts),

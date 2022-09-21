@@ -5,9 +5,7 @@ from torch import nn
 from torch.nn import functional as F
 
 from mmocr.models.builder import HEADS, build_loss
-import dgl
-from dgl.nn import SAGEConv
-from dgl.nn import GATConv
+
 
 @HEADS.register_module()
 class SDMGRHead(BaseModule):
@@ -43,13 +41,13 @@ class SDMGRHead(BaseModule):
             batch_first=True,
             bidirectional=bidirectional)
         self.edge_embed = nn.Linear(edge_input, edge_embed)
-        self.gat = GATConv(node_embed, node_embed, num_heads=1)
-        self.edge_pred = MLPPredictor(node_embed, 2)
-        self.node_cls = nn.Linear(node_embed, num_classes) # is cross entropy loss being used DOU
-        self.edge_cls = nn.Linear(edge_embed, 2) # is cross entropy loss being used DOU
+        self.gnn_layers = nn.ModuleList(
+            [GNNLayer(node_embed, edge_embed) for _ in range(num_gnn)])
+        self.node_cls = nn.Linear(node_embed, num_classes)
+        self.edge_cls = nn.Linear(edge_embed, 2)
         self.loss = build_loss(loss)
 
-    def forward(self, relations, texts, g, x=None):
+    def forward(self, relations, texts, x=None):
         node_nums, char_nums = [], []
         for text in texts:
             node_nums.append(text.size(0))
@@ -77,44 +75,17 @@ class SDMGRHead(BaseModule):
 
         all_edges = torch.cat(
             [rel.view(-1, rel.size(-1)) for rel in relations])
-        
         embed_edges = self.edge_embed(all_edges.float())
         embed_edges = F.normalize(embed_edges)
-        
-        #Adding node featutres and edge features to graph
-        g.ndata['h']=nodes
-        g.edata['h']=embed_edges
 
-        h = self.gat(g, nodes)
-        h=h.reshape(-1, 256)
-        g.ndata['h']=h
+        for gnn_layer in self.gnn_layers:
+            nodes, embed_edges = gnn_layer(nodes, embed_edges, node_nums)
 
-        node_cls = self.node_cls(h)
-        edge_cls = self.edge_pred(g, h)
-        
+        node_cls, edge_cls = self.node_cls(nodes), self.edge_cls(embed_edges)
         return node_cls, edge_cls
 
 
-class MLPPredictor(nn.Module):
-    def __init__(self, in_features, out_classes):
-        super().__init__()
-        self.W = nn.Linear(in_features * 2, out_classes)
-
-    def apply_edges(self, edges):
-        h_u = edges.src['h']
-        h_v = edges.dst['h']
-        score = self.W(torch.cat([h_u, h_v], 1))
-        return {'score': score}
-
-    def forward(self, graph, h):
-        # h contains the node representations computed from the GNN defined
-        # in the node classification section (Section 5.1).
-        with graph.local_scope():
-            graph.ndata['h'] = h
-            graph.apply_edges(self.apply_edges)
-            return graph.edata['score']
-
-class GNNLayer_old(nn.Module):
+class GNNLayer(nn.Module):
 
     def __init__(self, node_dim=256, edge_dim=256):
         super().__init__()

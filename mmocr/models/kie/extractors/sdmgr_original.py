@@ -11,9 +11,6 @@ from mmocr.models.builder import DETECTORS, build_roi_extractor
 from mmocr.models.common.detectors import SingleStageDetector
 from mmocr.utils import list_from_file
 
-import torch
-import dgl
-
 
 @DETECTORS.register_module()
 class SDMGR(SingleStageDetector):
@@ -56,7 +53,7 @@ class SDMGR(SingleStageDetector):
         self.openset = openset
 
     def forward_train(self, img, img_metas, relations, texts, gt_bboxes,
-                      gt_labels,  len_of_nodes): #src_and_dst_nodes,
+                      gt_labels):
         """
         Args:
             img (tensor): Input images of shape (N, C, H, W).
@@ -75,21 +72,9 @@ class SDMGR(SingleStageDetector):
         Returns:
             dict[str, tensor]: A dictionary of loss components.
         """
-        
         x = self.extract_feat(img, gt_bboxes)
-        graphs=[]
-        device="cuda"
-        for ind, no_of_nodes in enumerate(len_of_nodes):
-            G = dgl.DGLGraph()
-            G.add_nodes(no_of_nodes.cpu())
-            src, dst = img_metas[ind]["src_and_dst_nodes"][0], img_metas[ind]["src_and_dst_nodes"][1]
-            G.add_edges(src, dst)
-            G=G.to(device)
-            graphs.append(G)
-        g = dgl.batch(graphs)
-        node_preds, edge_preds = self.bbox_head.forward(relations, texts, g, x)
-        
-        return self.bbox_head.loss(node_preds, edge_preds, gt_labels, len_of_nodes)
+        node_preds, edge_preds = self.bbox_head.forward(relations, texts, x)
+        return self.bbox_head.loss(node_preds, edge_preds, gt_labels)
 
     def forward_test(self,
                      img,
@@ -97,40 +82,9 @@ class SDMGR(SingleStageDetector):
                      relations,
                      texts,
                      gt_bboxes,
-                     len_of_nodes,
                      rescale=False):
-        
-        print("LEN OF NODES IN TEST", len_of_nodes)
         x = self.extract_feat(img, gt_bboxes)
-        graphs=[]
-        
-        # START code for inference
-        device="cpu"
-        # print(img_metas)
-        img_metas=img_metas[0]
-        # END code for inference
-
-        # # START code for training
-        # device="cuda"
-        # # END code for training
-
-        ind=0
-        no_of_nodes=len_of_nodes
-        G = dgl.DGLGraph()
-        G.add_nodes(no_of_nodes.cpu())
-        
-        try:
-            src, dst = img_metas[ind]["src_and_dst_nodes"][0], img_metas[ind]["src_and_dst_nodes"][1]
-        except:
-            print("ISSSSUEEEEEEE HERRERRERRERERE")
-            print("IMG METAs", img_metas)
-        G.add_edges(src, dst)
-        G=G.to(device)
-        graphs.append(G)
-        g = dgl.batch(graphs)
-        node_preds, edge_preds = self.bbox_head.forward(relations, texts, g, x)
-        temp_edges = torch.cat(
-            [rel.view(-1, rel.size(-1)) for rel in relations])
+        node_preds, edge_preds = self.bbox_head.forward(relations, texts, x)
         return [
             dict(
                 img_metas=img_metas,

@@ -69,7 +69,6 @@ class KIEDataset(BaseDataset):
         results['ori_texts'] = results['ann_info']['ori_texts']
         results['filename'] = osp.join(self.img_prefix,
                                        results['img_info']['filename'])
-        
         results['ori_filename'] = results['img_info']['filename']
         # a dummy img data
         results['img'] = np.zeros((0, 0, 0), dtype=np.uint8)
@@ -105,11 +104,7 @@ class KIEDataset(BaseDataset):
             boxes.append(sorted_box)
             text = ann['text']
             texts.append(ann['text'])
-            
-            try:
-                text_ind = [self.dict[c] for c in text if c in self.dict]
-            except:
-                print("REASONNNNNNN FORRRRRRRR ERRROOORRRRRR", text)
+            text_ind = [self.dict[c] for c in text if c in self.dict]
             text_inds.append(text_ind)
             labels.append(ann.get('label', 0))
             edges.append(ann.get('edge', 0))
@@ -120,11 +115,10 @@ class KIEDataset(BaseDataset):
             text_inds=text_inds,
             edges=edges,
             labels=labels)
-        
+
         return self.list_to_numpy(ann_infos)
 
     def prepare_train_img(self, index):
-        
         """Get training data and annotations from pipeline.
 
         Args:
@@ -135,17 +129,14 @@ class KIEDataset(BaseDataset):
                 introduced by pipeline.
         """
         img_ann_info = self.data_infos[index]
-        
         img_info = {
             'filename': img_ann_info['file_name'],
             'height': img_ann_info['height'],
             'width': img_ann_info['width']
         }
-        
         ann_info = self._parse_anno_info(img_ann_info['annotations'])
-        
         results = dict(img_info=img_info, ann_info=ann_info)
-        
+
         self.pre_pipeline(results)
 
         return self.pipeline(results)
@@ -166,22 +157,21 @@ class KIEDataset(BaseDataset):
         for m in metrics:
             if m not in allowed_metrics:
                 raise KeyError(f'metric {m} is not supported')
-        
+
         return self.compute_macro_f1(results, **metric_options['macro_f1'])
 
     def compute_macro_f1(self, results, ignores=[]):
         node_preds = []
         node_gts = []
-        
         for idx, result in enumerate(results):
             node_preds.append(result['nodes'].cpu())
             box_ann_infos = self.data_infos[idx]['annotations']
             node_gt = [box_ann_info['label'] for box_ann_info in box_ann_infos]
             node_gts.append(torch.Tensor(node_gt))
-            
+
         node_preds = torch.cat(node_preds)
         node_gts = torch.cat(node_gts).int()
-        
+
         node_f1s = compute_f1_score(node_preds, node_gts, ignores)
 
         return {
@@ -194,7 +184,7 @@ class KIEDataset(BaseDataset):
         texts = ann_infos['texts']
         boxes = np.array(boxes, np.int32)
         relations, bboxes = self.compute_relation(boxes)
-        
+
         labels = ann_infos.get('labels', None)
         if labels is not None:
             labels = np.array(labels, np.int32)
@@ -203,13 +193,10 @@ class KIEDataset(BaseDataset):
                 labels = labels[:, None]
                 edges = np.array(edges)
                 edges = (edges[:, None] == edges[None, :]).astype(np.int32)
-                
                 if self.directed:
                     edges = (edges & labels == 1).astype(np.int32)
                 np.fill_diagonal(edges, -1)
-                
                 labels = np.concatenate([labels, edges], -1)
-                
         padded_text_inds = self.pad_text_indices(text_inds)
 
         return dict(

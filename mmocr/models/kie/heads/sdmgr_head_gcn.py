@@ -7,7 +7,8 @@ from torch.nn import functional as F
 from mmocr.models.builder import HEADS, build_loss
 import dgl
 from dgl.nn import SAGEConv
-from dgl.nn import GATConv
+# import dgllife
+# from dgllife.model.gnn.gcn import GCN
 
 @HEADS.register_module()
 class SDMGRHead(BaseModule):
@@ -43,8 +44,12 @@ class SDMGRHead(BaseModule):
             batch_first=True,
             bidirectional=bidirectional)
         self.edge_embed = nn.Linear(edge_input, edge_embed)
-        self.gat = GATConv(node_embed, node_embed, num_heads=1)
+        # self.gnn_layers = nn.ModuleList([SAGEConv(node_embed, node_embed, aggregator_type='mean') for _ in tange(num_gnn)])
+        self.gnn_conv1 = SAGEConv(node_embed, node_embed, aggregator_type='mean', activation=nn.ReLU())
+        self.gnn_conv2 = SAGEConv(node_embed, node_embed, aggregator_type='mean', activation=nn.ReLU())
         self.edge_pred = MLPPredictor(node_embed, 2)
+        # self.gnn_layers = nn.ModuleList(
+        #     [GNNLayer(node_embed, edge_embed) for _ in range(num_gnn)])
         self.node_cls = nn.Linear(node_embed, num_classes) # is cross entropy loss being used DOU
         self.edge_cls = nn.Linear(edge_embed, 2) # is cross entropy loss being used DOU
         self.loss = build_loss(loss)
@@ -77,21 +82,32 @@ class SDMGRHead(BaseModule):
 
         all_edges = torch.cat(
             [rel.view(-1, rel.size(-1)) for rel in relations])
-        
+        # print("shape of all edges", all_edges.shape)
         embed_edges = self.edge_embed(all_edges.float())
         embed_edges = F.normalize(embed_edges)
+        # print("GRAPH EDGEE FEATURES", embed_edges.shape)
+
+        # for gnn_layer in self.gnn_layers:
+        #     nodes, cat_nodes = gnn_layer(nodes, embed_edges, node_nums)
+        
         
         #Adding node featutres and edge features to graph
         g.ndata['h']=nodes
         g.edata['h']=embed_edges
+        # h=g.ndata['node_features']
+        h = self.gnn_conv1(g, nodes)
+        # h = h.view(h.shape[0], -1)
 
-        h = self.gat(g, nodes)
-        h=h.reshape(-1, 256)
+        h = self.gnn_conv2(g, h)
         g.ndata['h']=h
 
+        # # print("CAT NODES SHAPE", cat_nodes.shape)
         node_cls = self.node_cls(h)
         edge_cls = self.edge_pred(g, h)
         
+        
+        # print("EDGE CLS OUTPUT, NODE CLS", edge_cls.shape, node_cls.shape)
+        # node_cls, edge_cls = self.node_cls(nodes), self.edge_cls(cat_nodes)
         return node_cls, edge_cls
 
 
@@ -112,6 +128,7 @@ class MLPPredictor(nn.Module):
         with graph.local_scope():
             graph.ndata['h'] = h
             graph.apply_edges(self.apply_edges)
+            # print("GRAPH EDGE SCORE", graph.edata['score'])
             return graph.edata['score']
 
 class GNNLayer_old(nn.Module):
